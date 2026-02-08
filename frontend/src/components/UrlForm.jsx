@@ -34,7 +34,7 @@ function UrlForm({ onScanComplete, onError, onLoading, onNewScan }) {
     onLoading(true);
 
     try {
-      const response = await axios.post('/api/verify', {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/verify`, {
         url: validatedUrl
       });
 

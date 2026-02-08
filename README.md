@@ -86,13 +86,6 @@ site-verificator/
 - **npm** or **yarn**
 - **Google Safe Browsing API Key** (optional for testing)
 
-### 1️⃣ Clone the Repository
-
-```bash
-git clone <your-repo-url>
-cd site-verificator
-```
-
 ### 2️⃣ Backend Setup
 
 ```bash
