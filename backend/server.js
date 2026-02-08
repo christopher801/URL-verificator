@@ -14,81 +14,38 @@ const PORT = process.env.PORT || 5000;
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later.'
 });
 
 // =============================================
-// CORS CONFIGURATION - FIXED FOR PRODUCTION
+// ULTRA SIMPLE CORS FIX
 // =============================================
 
-// Define allowed origins
-const allowedOrigins = [
-  'https://url-verificator.vercel.app',       // Your Vercel frontend
-  'http://localhost:5173',                    // Local development
-  'http://localhost:3000',                    // Alternative local port
-  'https://url-verificator-git-main-yourusername.vercel.app', // Vercel preview URLs
-  'https://url-verificator-*.vercel.app'      // All Vercel subdomains
-];
+// OPTION 1: Allow ALL origins (for testing)
+app.use(cors({
+  origin: '*', // Allow all origins TEMPORARILY
+  credentials: false,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// Custom CORS function
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) {
-      console.log('No origin - allowing request');
-      return callback(null, true);
-    }
-    
-    // Check if origin is in allowed list
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      // Exact match
-      if (origin === allowedOrigin) return true;
-      
-      // Wildcard match for Vercel preview deployments
-      if (allowedOrigin.includes('*')) {
-        const pattern = allowedOrigin.replace(/\*/g, '.*');
-        const regex = new RegExp(`^${pattern}$`);
-        return regex.test(origin);
-      }
-      
-      return false;
-    });
-    
-    if (isAllowed) {
-      console.log(`✅ CORS allowed for origin: ${origin}`);
-      return callback(null, true);
-    } else {
-      console.log(`❌ CORS blocked for origin: ${origin}`);
-      console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
-      return callback(new Error(`Origin ${origin} not allowed by CORS policy`), false);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
-  ],
-  exposedHeaders: [
-    'Content-Length',
-    'Access-Control-Allow-Origin',
-    'Access-Control-Allow-Credentials'
-  ],
-  maxAge: 86400 // 24 hours
-};
-
-// Apply CORS middleware
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
+// OPTION 2: Or use this manual middleware (comment out the cors() above if using this)
+app.use((req, res, next) => {
+  // Allow ALL origins - we'll restrict later
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'false');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 // =============================================
 // MIDDLEWARE
@@ -97,9 +54,9 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(limiter);
 
-// Logging middleware
+// Simple request logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
   next();
 });
 
@@ -110,28 +67,36 @@ app.use((req, res, next) => {
 app.use('/api', verifyRoutes);
 
 // =============================================
-// HEALTH CHECK ENDPOINT
+// HEALTH CHECK - WITH CORS INFO
 // =============================================
 
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'OK', 
-    message: 'SiteGuard Verificator API is running',
+    message: 'SiteGuard Verificator API v3.0',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
-    cors: {
-      allowedOrigins: allowedOrigins,
-      currentOrigin: req.headers.origin || 'none'
-    }
+    cors: 'ALLOW_ALL (*)',
+    requestOrigin: req.headers.origin || 'none'
   });
 });
 
-// Test endpoint for CORS
-app.get('/api/test-cors', (req, res) => {
+// Test endpoint with specific CORS response
+app.get('/api/test', (req, res) => {
   res.status(200).json({
-    message: 'CORS test successful!',
-    origin: req.headers.origin || 'No origin header',
+    success: true,
+    message: 'API is working!',
+    corsEnabled: true,
+    yourOrigin: req.headers.origin || 'Not provided',
+    serverTime: new Date().toISOString()
+  });
+});
+
+// Simple echo endpoint for debugging
+app.post('/api/echo', (req, res) => {
+  res.status(200).json({
+    received: req.body,
+    headers: req.headers,
     timestamp: new Date().toISOString()
   });
 });
@@ -143,73 +108,39 @@ app.get('/api/test-cors', (req, res) => {
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
-    error: 'Endpoint not found',
-    message: `The requested endpoint ${req.originalUrl} does not exist`,
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.originalUrl}`,
     timestamp: new Date().toISOString()
   });
 });
 
-// Global error handler
+// Error handler
 app.use((err, req, res, next) => {
-  console.error('🚨 Server Error:', {
-    message: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    origin: req.headers.origin
-  });
-  
-  // CORS error
-  if (err.message && err.message.includes('CORS')) {
-    return res.status(403).json({
-      error: 'CORS Error',
-      message: err.message,
-      allowedOrigins: allowedOrigins,
-      yourOrigin: req.headers.origin || 'Not provided'
-    });
-  }
-  
-  // Other errors
-  const statusCode = err.status || 500;
-  const errorResponse = {
+  console.error('Error:', err.message);
+  res.status(err.status || 500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred',
+    message: err.message || 'Something went wrong',
     timestamp: new Date().toISOString()
-  };
-  
-  if (process.env.NODE_ENV === 'development') {
-    errorResponse.stack = err.stack;
-  }
-  
-  res.status(statusCode).json(errorResponse);
+  });
 });
 
 // =============================================
 // START SERVER
 // =============================================
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`
   =============================================
-  🛡️  SiteGuard Verificator Backend
+  🛡️  SiteGuard Verificator API v3.0
   =============================================
-  🌐 Server running on port ${PORT}
-  📍 Health check: http://localhost:${PORT}/health
-  🌍 CORS Enabled for origins:
-${allowedOrigins.map(origin => `     • ${origin}`).join('\n')}
-  🔒 Google Safe Browsing: ${process.env.GOOGLE_SAFE_BROWSING_API_KEY ? '✅ Configured' : '❌ Not configured'}
-  🚀 Environment: ${process.env.NODE_ENV || 'development'}
+  🌐 Server: http://0.0.0.0:${PORT}
+  📍 Health: /health
+  🌍 CORS: ALLOW_ALL (*)
+  🚀 Ready for production!
   =============================================
   `);
-});
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down...');
-  process.exit(0);
+  
+  // Log environment info
+  console.log('Environment:', process.env.NODE_ENV || 'development');
+  console.log('Google API Key:', process.env.GOOGLE_SAFE_BROWSING_API_KEY ? 'Set' : 'Not set');
 });
