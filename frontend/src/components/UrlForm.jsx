@@ -34,27 +34,70 @@ function UrlForm({ onScanComplete, onError, onLoading, onNewScan }) {
     onLoading(true);
 
     try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/verify`, {
-        url: validatedUrl
+      // IMPORTANT FIX: Get API URL from environment variable
+      const API_URL = import.meta.env.VITE_API_URL;
+      
+      // Log for debugging
+      console.log('🔗 API Configuration:', {
+        VITE_API_URL: API_URL,
+        usingURL: API_URL || '/api',
+        fullEndpoint: `${API_URL || '/api'}/verify`
       });
+      
+      const response = await axios.post(
+        `${API_URL || '/api'}/verify`, 
+        { url: validatedUrl },
+        { withCredentials: false }  // Important for CORS!
+      );
 
+      console.log('✅ Scan successful:', response.data);
       onScanComplete(response.data);
     } catch (error) {
-      console.error('Scan Error:', error);
+      console.error('❌ Scan Error Details:', {
+        message: error.message,
+        config: error.config,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       
       if (error.response) {
         // Server responded with error
-        onError(error.response.data.message || 'Server error occurred');
+        onError(error.response.data.message || `Server error: ${error.response.status}`);
       } else if (error.request) {
-        // No response received
+        // No response received - CORS or network issue
+        console.log('⚠️ No response received. This is likely a CORS issue.');
         onError('Unable to connect to the security server. Please check your connection.');
+        
+        // Try alternative approach
+        tryAlternativeAPI(validatedUrl);
       } else {
         // Request setup error
-        onError('An error occurred while setting up the request.');
+        onError('An error occurred while setting up the request: ' + error.message);
       }
     } finally {
       setIsValidating(false);
       onLoading(false);
+    }
+  };
+
+  // Alternative API call if main one fails
+  const tryAlternativeAPI = async (validatedUrl) => {
+    try {
+      console.log('🔄 Trying alternative API endpoint...');
+      
+      // Try direct call without /api prefix if VITE_API_URL already has it
+      const directURL = 'https://url-verificator.onrender.com/api/verify';
+      
+      const response = await axios.post(
+        directURL,
+        { url: validatedUrl },
+        { withCredentials: false }
+      );
+      
+      console.log('✅ Alternative API successful');
+      onScanComplete(response.data);
+    } catch (altError) {
+      console.error('❌ Alternative API also failed:', altError.message);
     }
   };
 
